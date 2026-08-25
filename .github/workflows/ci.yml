@@ -139,14 +139,23 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y qemu-user-static
       - name: Build the test binary
         run: CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} go test -c -o hotkey.test .
+      # QEMU_CPU must be EXPORTED ONLY when it has a value: qemu-user refuses
+      # to start with "-cpu option cannot be empty" if it is set to the empty
+      # string, which is what `env: QEMU_CPU: ${{ matrix.qemu_cpu }}` does for
+      # the arches that do not need one. Setting a variable empty is not the
+      # same as not setting it.
       - name: Run it
         env:
-          QEMU_CPU: ${{ matrix.qemu_cpu }}
+          QEMU: ${{ matrix.qemu }}
+          QEMU_CPU_WANTED: ${{ matrix.qemu_cpu }}
         run: |
-          if [ -z "${{ matrix.qemu }}" ]; then
+          if [ -n "$QEMU_CPU_WANTED" ]; then
+            export QEMU_CPU="$QEMU_CPU_WANTED"
+          fi
+          if [ -z "$QEMU" ]; then
             ./hotkey.test -test.count=1 -test.v
           else
-            ${{ matrix.qemu }} ./hotkey.test -test.count=1 -test.v
+            "$QEMU" ./hotkey.test -test.count=1 -test.v
           fi
 
   linux:
