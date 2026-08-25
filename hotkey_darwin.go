@@ -135,9 +135,15 @@ func handleHotKey(callRef, event, userData uintptr) uintptr {
 	}
 	id := uint32(packed >> 32)
 
+	// The send stays UNDER the lock, and Close closes the channel under the
+	// same one. Looking the Hotkey up, dropping the lock and only then sending
+	// leaves a window in which Close runs in between — and a send on a closed
+	// channel panics, on the main run-loop thread, taking the process with it.
+	// Holding the lock across a send is safe here precisely because the send is
+	// non-blocking: it cannot wait for a consumer while holding it.
 	mu.Lock()
+	defer mu.Unlock()
 	h := live[id]
-	mu.Unlock()
 	if h == nil {
 		return 0
 	}
@@ -293,11 +299,15 @@ func (h *Hotkey) C() <-chan Event { return h.ch }
 // safe to call more than once.
 func (h *Hotkey) Close() error {
 	h.closeOnce.Do(func() {
+		// Unregistering and closing the channel happen under the same lock the
+		// handler sends under, so a press being delivered at this instant
+		// cannot find a closed channel. Release goes after: it talks to Carbon
+		// and there is no reason to hold the lock across it.
 		mu.Lock()
 		delete(live, h.id)
+		close(h.ch)
 		mu.Unlock()
 		h.closeErr = h.claim.Release()
-		close(h.ch)
 	})
 	return h.closeErr
 }
