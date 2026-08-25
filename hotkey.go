@@ -1,0 +1,456 @@
+// Package hotkey claims system-wide keyboard shortcuts on macOS from pure Go
+// (CGO_ENABLED=0), and falls back to a neighbouring combination when the one
+// you asked for is already taken.
+//
+// A hot key registered here fires while the user is working in ANOTHER
+// application. That is the whole point: the consumer is an XR virtual-desktop
+// app whose ribbon of screens is turned from the keyboard while the user types
+// inside the applications on those screens. A shortcut that only works when
+// your own window is focused would be useless to it.
+//
+// # No permission is required
+//
+// The two obvious routes — CGEventTap and
+// -[NSEvent addGlobalMonitorForEventsMatchingMask:] — both demand the
+// Accessibility (TCC) grant, which means a system dialog and a trip to System
+// Settings. This package instead uses Carbon's hot-key API
+// (RegisterEventHotKey), which is still present on macOS 26 and needs no
+// permission at all. Registering ⌥⌘← on macOS 26.6.2 produced no dialog.
+//
+// # Three kinds of conflict, two of them detectable
+//
+// RegisterEventHotKey does NOT conflict-check against system shortcuts. This is
+// the single most important thing to understand about it, and the reason a
+// naive implementation is useless:
+//
+//  1. Another Carbon hot-key holder — DETECTED. Registration returns
+//     eventHotKeyExistsErr (-9878), surfaced as [ErrComboTaken].
+//  2. A macOS system shortcut (⌥⌘Space is the Finder's search window) — NOT
+//     detected by registration, which returns 0 for it anyway. This package
+//     catches these itself, before registering, with [SystemShortcuts]. See
+//     that type for exactly how dependable that is.
+//  3. An ordinary application's own menu key equivalent — for example Safari's
+//     ⌥⌘← for "previous tab". NOT DETECTABLE, by this package or any other.
+//     Nothing on macOS enumerates other applications' menu shortcuts, and such
+//     a shortcut is only live while that application is frontmost. If you claim
+//     one, you will win it globally and that application will silently stop
+//     seeing it. There is no coverage here and this package does not pretend
+//     otherwise.
+//
+// # Portability
+//
+// Every exported symbol is defined on all platforms so consumers cross-compile.
+// On non-darwin GOOS the registration entry points report [ErrUnsupported]; the
+// whole policy layer — the fallback ladder, combination formatting, and the
+// parsing of the system-shortcut data — is OS-independent and fully testable
+// anywhere.
+package hotkey
+
+import (
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// Errors reported by the package. They are stable and may be tested with
+// errors.Is.
+var (
+	// ErrUnsupported is returned by the registration entry points on
+	// non-darwin platforms (Carbon is macOS-only).
+	ErrUnsupported = errors.New("hotkey: unsupported on this platform (darwin only)")
+
+	// ErrComboTaken reports that the combination is already held. It wraps
+	// both detectable conflict kinds: another Carbon hot-key holder
+	// (eventHotKeyExistsErr, -9878) and a macOS system shortcut found by
+	// [SystemShortcuts].
+	ErrComboTaken = errors.New("hotkey: combination already taken")
+
+	// ErrNoCandidate reports that neither the wanted combination nor any
+	// rung of the fallback ladder could be claimed. Nothing was registered.
+	ErrNoCandidate = errors.New("hotkey: every candidate combination is taken")
+
+	// ErrNoModifier reports a combination with no modifier at all. Carbon
+	// accepts one, but claiming a bare key system-wide would swallow that
+	// key everywhere, in every application, which is never what a caller
+	// means.
+	ErrNoModifier = errors.New("hotkey: a system-wide hot key needs at least one modifier")
+
+	// ErrClosed reports use of a [Hotkey] that has already been released.
+	ErrClosed = errors.New("hotkey: hot key already released")
+)
+
+// Modifier is a set of modifier keys, as a bit set. It is deliberately NOT the
+// Carbon bitmask nor the Cocoa one; both of those are derived from it, so a
+// caller never has to know either.
+type Modifier uint8
+
+// The modifier keys, in Apple's canonical display order.
+const (
+	Control Modifier = 1 << iota
+	Option
+	Shift
+	Command
+)
+
+// Carbon modifier bits (Events.h). Exported nowhere; [Modifier.carbon] is the
+// only way to reach them.
+const (
+	carbonCmdKey     = 0x0100
+	carbonShiftKey   = 0x0200
+	carbonOptionKey  = 0x0800
+	carbonControlKey = 0x1000
+)
+
+// Cocoa NSEventModifierFlags bits, which is the encoding the
+// com.apple.symbolichotkeys preference domain stores.
+const (
+	cocoaShift   = 1 << 17
+	cocoaControl = 1 << 18
+	cocoaOption  = 1 << 19
+	cocoaCommand = 1 << 20
+)
+
+// modTable drives every conversion and the String method, so the four
+// representations can never drift apart.
+var modTable = []struct {
+	bit    Modifier
+	carbon uint32
+	cocoa  uint32
+	symbol string
+	name   string
+}{
+	{Control, carbonControlKey, cocoaControl, "⌃", "Control"}, // ⌃
+	{Option, carbonOptionKey, cocoaOption, "⌥", "Option"},     // ⌥
+	{Shift, carbonShiftKey, cocoaShift, "⇧", "Shift"},         // ⇧
+	{Command, carbonCmdKey, cocoaCommand, "⌘", "Command"},     // ⌘
+}
+
+// carbon renders the set as the Carbon modifier bitmask RegisterEventHotKey
+// wants.
+func (m Modifier) carbon() uint32 {
+	var out uint32
+	for _, e := range modTable {
+		if m&e.bit != 0 {
+			out |= e.carbon
+		}
+	}
+	return out
+}
+
+// cocoa renders the set as the NSEventModifierFlags bitmask used by
+// com.apple.symbolichotkeys.
+func (m Modifier) cocoa() uint32 {
+	var out uint32
+	for _, e := range modTable {
+		if m&e.bit != 0 {
+			out |= e.cocoa
+		}
+	}
+	return out
+}
+
+// modifierFromCocoa converts an NSEventModifierFlags bitmask back to a
+// [Modifier], ignoring bits this package does not model (Fn, CapsLock, the
+// device-dependent left/right bits).
+func modifierFromCocoa(mask uint32) Modifier {
+	var m Modifier
+	for _, e := range modTable {
+		if mask&e.cocoa != 0 {
+			m |= e.bit
+		}
+	}
+	return m
+}
+
+// String renders the modifier set with the standard glyphs, in the order macOS
+// itself uses in menus: ⌃⌥⇧⌘. The empty set renders as "".
+func (m Modifier) String() string {
+	var b strings.Builder
+	for _, e := range modTable {
+		if m&e.bit != 0 {
+			b.WriteString(e.symbol)
+		}
+	}
+	return b.String()
+}
+
+// Names renders the modifier set as English words, in the same order — for
+// logs and for accessibility labels, where the glyphs read badly.
+func (m Modifier) Names() []string {
+	var out []string
+	for _, e := range modTable {
+		if m&e.bit != 0 {
+			out = append(out, e.name)
+		}
+	}
+	return out
+}
+
+// Key is a macOS virtual key code (the kVK_* constants from
+// HIToolbox/Events.h). It is a hardware position, not a character: Key(0) is
+// the key labelled "A" on a US layout and "Q" on a French one.
+type Key uint16
+
+// The virtual key codes this package names. Any other code is usable; it
+// simply renders as "key 0x…" in a [Combo] string.
+const (
+	KeyA          Key = 0x00
+	KeyS          Key = 0x01
+	KeyD          Key = 0x02
+	KeyF          Key = 0x03
+	KeyH          Key = 0x04
+	KeyG          Key = 0x05
+	KeyZ          Key = 0x06
+	KeyX          Key = 0x07
+	KeyC          Key = 0x08
+	KeyV          Key = 0x09
+	KeyB          Key = 0x0B
+	KeyQ          Key = 0x0C
+	KeyW          Key = 0x0D
+	KeyE          Key = 0x0E
+	KeyR          Key = 0x0F
+	KeyY          Key = 0x10
+	KeyT          Key = 0x11
+	KeyO          Key = 0x1F
+	KeyU          Key = 0x20
+	KeyI          Key = 0x22
+	KeyP          Key = 0x23
+	KeyL          Key = 0x25
+	KeyJ          Key = 0x26
+	KeyK          Key = 0x28
+	KeyN          Key = 0x2D
+	KeyM          Key = 0x2E
+	KeyN1         Key = 0x12
+	KeyN2         Key = 0x13
+	KeyN3         Key = 0x14
+	KeyN4         Key = 0x15
+	KeyN5         Key = 0x17
+	KeyN6         Key = 0x16
+	KeyN7         Key = 0x1A
+	KeyN8         Key = 0x1C
+	KeyN9         Key = 0x19
+	KeyN0         Key = 0x1D
+	KeySlash      Key = 0x2C
+	KeyReturn     Key = 0x24
+	KeyTab        Key = 0x30
+	KeySpace      Key = 0x31
+	KeyDelete     Key = 0x33
+	KeyEscape     Key = 0x35
+	KeyF1         Key = 0x7A
+	KeyF2         Key = 0x78
+	KeyF3         Key = 0x63
+	KeyF4         Key = 0x76
+	KeyF5         Key = 0x60
+	KeyF6         Key = 0x61
+	KeyF7         Key = 0x62
+	KeyF8         Key = 0x64
+	KeyF9         Key = 0x65
+	KeyF10        Key = 0x6D
+	KeyF11        Key = 0x67
+	KeyF12        Key = 0x6F
+	KeyF13        Key = 0x69
+	KeyF14        Key = 0x6B
+	KeyF15        Key = 0x71
+	KeyLeftArrow  Key = 0x7B
+	KeyRightArrow Key = 0x7C
+	KeyDownArrow  Key = 0x7D
+	KeyUpArrow    Key = 0x7E
+)
+
+// keyNames maps the named key codes to what macOS prints on a menu.
+var keyNames = map[Key]string{
+	KeyA: "A", KeyS: "S", KeyD: "D", KeyF: "F", KeyH: "H", KeyG: "G",
+	KeyZ: "Z", KeyX: "X", KeyC: "C", KeyV: "V", KeyB: "B", KeyQ: "Q",
+	KeyW: "W", KeyE: "E", KeyR: "R", KeyY: "Y", KeyT: "T", KeyO: "O",
+	KeyU: "U", KeyI: "I", KeyP: "P", KeyL: "L", KeyJ: "J", KeyK: "K",
+	KeyN: "N", KeyM: "M",
+	KeyN1: "1", KeyN2: "2", KeyN3: "3", KeyN4: "4", KeyN5: "5",
+	KeyN6: "6", KeyN7: "7", KeyN8: "8", KeyN9: "9", KeyN0: "0",
+	KeySlash:  "/",
+	KeyReturn: "↩", KeyTab: "⇥", KeySpace: "Space",
+	KeyDelete: "⌫", KeyEscape: "⎋",
+	KeyF1: "F1", KeyF2: "F2", KeyF3: "F3", KeyF4: "F4", KeyF5: "F5",
+	KeyF6: "F6", KeyF7: "F7", KeyF8: "F8", KeyF9: "F9", KeyF10: "F10",
+	KeyF11: "F11", KeyF12: "F12", KeyF13: "F13", KeyF14: "F14", KeyF15: "F15",
+	KeyLeftArrow: "←", KeyRightArrow: "→",
+	KeyDownArrow: "↓", KeyUpArrow: "↑",
+}
+
+// String renders the key as macOS would print it on a menu — "←" for the
+// left arrow, "Space" for the space bar. An unnamed code renders as its
+// hexadecimal virtual key code, which is honest rather than wrong: this package
+// does not consult the active keyboard layout, so it cannot know what character
+// an arbitrary code produces.
+func (k Key) String() string {
+	if n, ok := keyNames[k]; ok {
+		return n
+	}
+	return fmt.Sprintf("key 0x%02X", uint16(k))
+}
+
+// Combo is a key plus its modifiers — one keyboard shortcut.
+type Combo struct {
+	Key  Key
+	Mods Modifier
+}
+
+// String renders the combination the way macOS shows it to a person: "⌥⌘←",
+// "⌃⌥⇧⌘Space". This is what you put in front of the user when the fallback
+// gives them something other than what they asked for. A shortcut the user
+// cannot be told about is worse than none.
+func (c Combo) String() string { return c.Mods.String() + c.Key.String() }
+
+// Names renders the combination in words — "Option-Command-←" — for logs and
+// accessibility labels.
+func (c Combo) Names() string {
+	return strings.Join(append(c.Mods.Names(), c.Key.String()), "-")
+}
+
+// Valid reports whether the combination can be claimed system-wide. It requires
+// at least one modifier; see [ErrNoModifier].
+func (c Combo) Valid() bool { return c.Mods != 0 }
+
+// ---------------------------------------------------------------------------
+// The fallback ladder.
+// ---------------------------------------------------------------------------
+
+// DefaultLadder is the order in which [Resolve] tries neighbouring
+// combinations when the wanted one is taken: the same key with Shift added,
+// then with Control added, then with both.
+//
+// The order is deliberate. Shift first because ⇧ combined with an existing
+// modifier set is the least likely to collide with anything and reads most
+// naturally on a menu; Control last-but-one because ⌃ is heavily used by the
+// terminal and by text-editing key bindings; both together last because it is
+// the most awkward to press.
+var DefaultLadder = []Modifier{Shift, Control, Shift | Control}
+
+// Candidates returns the combinations [Resolve] will try, in order: the wanted
+// one first, then the wanted one with each ladder rung's modifiers added.
+//
+// A rung that adds nothing new — because the caller already asked for that
+// modifier — is skipped rather than retried, so asking for ⇧⌥⌘← does not try
+// ⇧⌥⌘← twice. Duplicate rungs are likewise collapsed.
+func Candidates(want Combo, ladder []Modifier) []Combo {
+	out := []Combo{want}
+	seen := map[Modifier]bool{want.Mods: true}
+	for _, add := range ladder {
+		m := want.Mods | add
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		out = append(out, Combo{Key: want.Key, Mods: m})
+	}
+	return out
+}
+
+// Registrar is the seam between the fallback policy and the operating system.
+// [Resolve] speaks only to this, so the whole ladder — including the case where
+// every candidate is taken — is testable on any platform with no Carbon at all.
+//
+// Claim must report [ErrComboTaken] (or an error wrapping it) when the
+// combination is held by another Carbon hot-key holder. Any other error aborts
+// the ladder, because it means something is wrong with the process rather than
+// with this particular combination.
+type Registrar interface {
+	Claim(Combo) (Claim, error)
+}
+
+// Claim is a held hot key. Release gives the combination back to the system.
+type Claim interface {
+	Release() error
+}
+
+// Reserver reports combinations that are known to be taken WITHOUT asking the
+// operating system to register them — the macOS system shortcuts that
+// RegisterEventHotKey would happily hand out anyway. [SystemShortcuts]
+// implements it. A nil Reserver means "check nothing", in which case only
+// conflict kind 1 is detected.
+type Reserver interface {
+	Reserved(Combo) (reason string, taken bool)
+}
+
+// Resolve walks the fallback ladder and claims the first combination that is
+// free, returning which one it got.
+//
+// Each candidate is first put to reserved (the system-shortcut check, conflict
+// kind 2), and only then to reg.Claim (conflict kind 1). The order matters: a
+// system shortcut registers with status 0, so asking Carbon first would
+// "succeed" at claiming a combination the user cannot actually use.
+//
+// If every candidate is taken, Resolve returns [ErrNoCandidate] and nothing is
+// registered. It never silently returns an unusable claim.
+func Resolve(want Combo, ladder []Modifier, reg Registrar, reserved Reserver) (Combo, Claim, error) {
+	if !want.Valid() {
+		return Combo{}, nil, fmt.Errorf("%w: %s", ErrNoModifier, want)
+	}
+	if reg == nil {
+		return Combo{}, nil, errors.New("hotkey: nil Registrar")
+	}
+	var why []string
+	for _, c := range Candidates(want, ladder) {
+		if reserved != nil {
+			if reason, taken := reserved.Reserved(c); taken {
+				why = append(why, fmt.Sprintf("%s: %s", c, reason))
+				continue
+			}
+		}
+		claim, err := reg.Claim(c)
+		if err == nil {
+			return c, claim, nil
+		}
+		if !errors.Is(err, ErrComboTaken) {
+			return Combo{}, nil, fmt.Errorf("hotkey: claiming %s: %w", c, err)
+		}
+		why = append(why, fmt.Sprintf("%s: held by another application", c))
+	}
+	return Combo{}, nil, fmt.Errorf("%w (%s)", ErrNoCandidate, strings.Join(why, "; "))
+}
+
+// ---------------------------------------------------------------------------
+// Options.
+// ---------------------------------------------------------------------------
+
+// Options tunes [Register]. The zero value is the sensible default: the
+// [DefaultLadder], and the system-shortcut check switched on.
+type Options struct {
+	// Ladder overrides [DefaultLadder]. An explicitly empty (non-nil, len 0)
+	// ladder disables the fallback entirely: the wanted combination is
+	// claimed or [ErrNoCandidate] is returned.
+	Ladder []Modifier
+
+	// Reserved overrides the system-shortcut check. Leave it nil to use the
+	// machine's effective set ([LoadSystemShortcuts]). Set it to
+	// NoReserved{} to skip the check and let Carbon be the only authority,
+	// accepting that conflict kind 2 then goes undetected.
+	Reserved Reserver
+}
+
+// ladder returns the ladder to use, distinguishing "not set" (nil, use the
+// default) from "deliberately empty" (no fallback).
+func (o *Options) ladder() []Modifier {
+	if o == nil || o.Ladder == nil {
+		return DefaultLadder
+	}
+	return o.Ladder
+}
+
+// NoReserved is a [Reserver] that reserves nothing. Use it to opt out of the
+// system-shortcut check.
+type NoReserved struct{}
+
+// Reserved implements [Reserver]. It never reports a combination as taken.
+func (NoReserved) Reserved(Combo) (string, bool) { return "", false }
+
+// sortedReasons is a small helper used by [SystemShortcuts.Describe] to keep
+// output deterministic.
+func sortedReasons(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
