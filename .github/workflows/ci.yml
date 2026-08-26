@@ -74,7 +74,14 @@ jobs:
       - name: 100% coverage gate on the portable layer
         shell: bash
         run: |
-          go tool cover -func=cover.out | grep -E '/(hotkey|symbolic)\.go:' > portable.txt
+          # By SHAPE, not by name. Listing the portable files means a new one
+          # is outside the gate until somebody remembers to add it, which is
+          # the same thing as not having a gate. parse.go was added on
+          # 2026-08-26 and would have escaped this list.
+          go tool cover -func=cover.out \
+            | grep -vE '_(darwin|linux|android|windows|js|other)\.go:' \
+            | grep -v '/cmd/' \
+            | grep -v '^total:' > portable.txt
           cat portable.txt
           if grep -v '100.0%' portable.txt; then
             echo "::error::the portable layer is below 100% (lines above)"; exit 1
