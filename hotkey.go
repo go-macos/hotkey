@@ -289,6 +289,39 @@ func (k Key) String() string {
 	return fmt.Sprintf("key 0x%02X", uint16(k))
 }
 
+// Name spells the key out, where [Key.String] would print the glyph macOS puts
+// on a menu: "Left" rather than "←", "Return" rather than "↩".
+//
+// The glyphs are right on a menu and in a terminal, and they are NOT in every
+// font. Rendered in a window with a font that lacks them, "⌥⌘←" comes out as
+// "Option-Command-" and stops — a line whose whole job is to say which
+// combination was granted, saying nothing. So anywhere the font is not known,
+// this is the one to use.
+//
+// A key with no name of its own still renders as its hexadecimal code, which
+// is honest rather than wrong.
+func (k Key) Name() string {
+	if n, ok := keySpelled[k]; ok {
+		return n
+	}
+	return k.String()
+}
+
+// keySpelled is every key [Key.String] prints as a glyph, in words. A key whose
+// printed form is already a word — "Space", "F1", "A" — is not here, because
+// there would be nothing to say about it.
+var keySpelled = map[Key]string{
+	KeyReturn:     "Return",
+	KeyTab:        "Tab",
+	KeyDelete:     "Delete",
+	KeyEscape:     "Escape",
+	KeyLeftArrow:  "Left",
+	KeyRightArrow: "Right",
+	KeyDownArrow:  "Down",
+	KeyUpArrow:    "Up",
+	KeySlash:      "Slash",
+}
+
 // Combo is a key plus its modifiers — one keyboard shortcut.
 type Combo struct {
 	Key  Key
@@ -304,7 +337,7 @@ func (c Combo) String() string { return c.Mods.String() + c.Key.String() }
 // Names renders the combination in words — "Option-Command-←" — for logs and
 // accessibility labels.
 func (c Combo) Names() string {
-	return strings.Join(append(c.Mods.Names(), c.Key.String()), "-")
+	return strings.Join(append(c.Mods.Names(), c.Key.Name()), "-")
 }
 
 // Valid reports whether the combination can be claimed system-wide. It requires
