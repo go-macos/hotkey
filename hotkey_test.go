@@ -125,7 +125,7 @@ func TestComboString(t *testing.T) {
 	if got, want := c.String(), "⌥⌘←"; got != want {
 		t.Errorf("String() = %q, want %q", got, want)
 	}
-	if got, want := c.Names(), "Option-Command-←"; got != want {
+	if got, want := c.Names(), "Option-Command-Left"; got != want {
 		t.Errorf("Names() = %q, want %q", got, want)
 	}
 	bare := Combo{Key: KeySpace}

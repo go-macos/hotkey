@@ -116,3 +116,52 @@ func TestKeyNamesListsWhatParseAccepts(t *testing.T) {
 		}
 	}
 }
+
+// TestNamesSpellsTheKeyOut.
+//
+// Names is the form for a log, an accessibility tree, and a window whose font
+// is not the one macOS puts on a menu. It used to spell the MODIFIERS out and
+// leave the key as a glyph, so "⌥⌘←" became "Option-Command-" and stopped —
+// measured in a settings window, where a line whose whole job was to say which
+// combination had been granted said nothing at all.
+func TestNamesSpellsTheKeyOut(t *testing.T) {
+	for key, want := range map[Key]string{
+		KeyLeftArrow:  "Left",
+		KeyRightArrow: "Right",
+		KeyUpArrow:    "Up",
+		KeyDownArrow:  "Down",
+		KeyReturn:     "Return",
+		KeyTab:        "Tab",
+		KeyDelete:     "Delete",
+		KeyEscape:     "Escape",
+		KeySlash:      "Slash",
+		KeySpace:      "Space", // already a word; String and Name agree
+		KeyA:          "A",
+	} {
+		if got := key.Name(); got != want {
+			t.Errorf("Key(%#x).Name() = %q, want %q", uint16(key), got, want)
+		}
+	}
+	// Every glyph String prints must have a word for it. This is what fails if
+	// a key is ever added with a glyph and no name.
+	for key, printed := range keyNames {
+		if name := key.Name(); name == printed && !isWord(printed) {
+			t.Errorf("Key(%#x) prints %q and has no word for it", uint16(key), printed)
+		}
+	}
+	// A key the package does not name at all is still honest about it.
+	if got := Key(0xFE).Name(); got != "key 0xFE" {
+		t.Errorf("an unnamed key gives %q", got)
+	}
+}
+
+// isWord reports whether a printed key name is already something a person could
+// type — letters and digits, rather than a glyph.
+func isWord(s string) bool {
+	for _, r := range s {
+		if r > 127 {
+			return false
+		}
+	}
+	return true
+}

@@ -154,6 +154,8 @@ func parseKey(f string) (Key, bool) {
 		return KeyDelete, true
 	case "escape", "esc":
 		return KeyEscape, true
+	case "slash":
+		return KeySlash, true
 	case "left", "leftarrow":
 		return KeyLeftArrow, true
 	case "right", "rightarrow":
@@ -175,7 +177,7 @@ func KeyNames() string {
 	}
 	for _, name := range []string{
 		"Return", "Enter", "Tab", "Delete", "Backspace", "Escape", "Esc",
-		"Left", "Right", "Up", "Down",
+		"Left", "Right", "Up", "Down", "Slash",
 	} {
 		seen[name] = true
 	}
