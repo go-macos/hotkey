@@ -163,6 +163,10 @@ func parseKey(f string) (Key, bool) {
 	// rather than a shortcut that also needs Shift.
 	case "equal", "equals", "plus":
 		return KeyEqual, true
+	case "leftbracket", "[":
+		return KeyLeftBracket, true
+	case "rightbracket", "]":
+		return KeyRightBracket, true
 	case "left", "leftarrow":
 		return KeyLeftArrow, true
 	case "right", "rightarrow":

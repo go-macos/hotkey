@@ -237,32 +237,39 @@ const (
 	// codes are the US layout's, like every other key here: a hot key is
 	// registered by CODE and the code is a POSITION, so on a French keyboard
 	// these are the same two keys in the same place whatever is printed on them.
-	KeyMinus      Key = 0x1B
-	KeyEqual      Key = 0x18
-	KeyReturn     Key = 0x24
-	KeyTab        Key = 0x30
-	KeySpace      Key = 0x31
-	KeyDelete     Key = 0x33
-	KeyEscape     Key = 0x35
-	KeyF1         Key = 0x7A
-	KeyF2         Key = 0x78
-	KeyF3         Key = 0x63
-	KeyF4         Key = 0x76
-	KeyF5         Key = 0x60
-	KeyF6         Key = 0x61
-	KeyF7         Key = 0x62
-	KeyF8         Key = 0x64
-	KeyF9         Key = 0x65
-	KeyF10        Key = 0x6D
-	KeyF11        Key = 0x67
-	KeyF12        Key = 0x6F
-	KeyF13        Key = 0x69
-	KeyF14        Key = 0x6B
-	KeyF15        Key = 0x71
-	KeyLeftArrow  Key = 0x7B
-	KeyRightArrow Key = 0x7C
-	KeyDownArrow  Key = 0x7D
-	KeyUpArrow    Key = 0x7E
+	KeyMinus Key = 0x1B
+	KeyEqual Key = 0x18
+	// KeyLeftBracket and KeyRightBracket are the pair after P on the top row,
+	// which is where a keyboard puts a matched set of opposites that nothing has
+	// told anybody the meaning of. Same reasoning as Minus and Equal, and the same
+	// caveat: the CODE is a position, so on a French keyboard these are the two
+	// keys in that place whatever is printed on them.
+	KeyLeftBracket  Key = 0x21
+	KeyRightBracket Key = 0x1E
+	KeyReturn       Key = 0x24
+	KeyTab          Key = 0x30
+	KeySpace        Key = 0x31
+	KeyDelete       Key = 0x33
+	KeyEscape       Key = 0x35
+	KeyF1           Key = 0x7A
+	KeyF2           Key = 0x78
+	KeyF3           Key = 0x63
+	KeyF4           Key = 0x76
+	KeyF5           Key = 0x60
+	KeyF6           Key = 0x61
+	KeyF7           Key = 0x62
+	KeyF8           Key = 0x64
+	KeyF9           Key = 0x65
+	KeyF10          Key = 0x6D
+	KeyF11          Key = 0x67
+	KeyF12          Key = 0x6F
+	KeyF13          Key = 0x69
+	KeyF14          Key = 0x6B
+	KeyF15          Key = 0x71
+	KeyLeftArrow    Key = 0x7B
+	KeyRightArrow   Key = 0x7C
+	KeyDownArrow    Key = 0x7D
+	KeyUpArrow      Key = 0x7E
 )
 
 // keyNames maps the named key codes to what macOS prints on a menu.
@@ -282,6 +289,10 @@ var keyNames = map[Key]string{
 	// directions, and the round trip through ParseCombo is what caught it. Equal
 	// is spelled with it for the pair to read alike.
 	KeyMinus: "Minus", KeyEqual: "Equal",
+	// Spelled for the same reason: a bracket in a combination written with "-"
+	// between its parts is readable, but the pair reads better as words and the
+	// glyphs are two of the characters a settings file quotes with.
+	KeyLeftBracket: "LeftBracket", KeyRightBracket: "RightBracket",
 	KeyReturn: "↩", KeyTab: "⇥", KeySpace: "Space",
 	KeyDelete: "⌫", KeyEscape: "⎋",
 	KeyF1: "F1", KeyF2: "F2", KeyF3: "F3", KeyF4: "F4", KeyF5: "F5",
@@ -325,17 +336,19 @@ func (k Key) Name() string {
 // printed form is already a word — "Space", "F1", "A" — is not here, because
 // there would be nothing to say about it.
 var keySpelled = map[Key]string{
-	KeyReturn:     "Return",
-	KeyTab:        "Tab",
-	KeyDelete:     "Delete",
-	KeyEscape:     "Escape",
-	KeyLeftArrow:  "Left",
-	KeyRightArrow: "Right",
-	KeyDownArrow:  "Down",
-	KeyUpArrow:    "Up",
-	KeySlash:      "Slash",
-	KeyMinus:      "Minus",
-	KeyEqual:      "Equal",
+	KeyReturn:       "Return",
+	KeyTab:          "Tab",
+	KeyDelete:       "Delete",
+	KeyEscape:       "Escape",
+	KeyLeftArrow:    "Left",
+	KeyRightArrow:   "Right",
+	KeyDownArrow:    "Down",
+	KeyUpArrow:      "Up",
+	KeySlash:        "Slash",
+	KeyMinus:        "Minus",
+	KeyEqual:        "Equal",
+	KeyLeftBracket:  "LeftBracket",
+	KeyRightBracket: "RightBracket",
 }
 
 // Combo is a key plus its modifiers — one keyboard shortcut.
