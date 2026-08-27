@@ -166,8 +166,8 @@ func isWord(s string) bool {
 	return true
 }
 
-// TestMinusAndEqual: the two keys a person reaches for to make something
-// smaller or larger.
+// TestMinusAndEqual: the keys a person reaches for to make something smaller or
+// larger, and the matched pair after them.
 //
 // They are the reason this pair exists, and the reason they are SPELLED rather
 // than printed as the characters on them: a combination is written with "-"
@@ -183,6 +183,10 @@ func TestMinusAndEqual(t *testing.T) {
 		// writing it in a settings file means the key with a plus printed on it
 		// rather than a shortcut that also needs Shift.
 		{"plus", KeyEqual},
+		// The brackets, by name and by the character on the key. The glyph works
+		// here because neither is the "-" a combination is joined with.
+		{"leftbracket", KeyLeftBracket}, {"[", KeyLeftBracket},
+		{"rightbracket", KeyRightBracket}, {"]", KeyRightBracket},
 	} {
 		got, err := ParseCombo("Control-Option-Command-" + c.in)
 		if err != nil {
@@ -203,10 +207,14 @@ func TestMinusAndEqual(t *testing.T) {
 	if KeyMinus != 0x1B || KeyEqual != 0x18 {
 		t.Errorf("the codes are %#x and %#x", uint16(KeyMinus), uint16(KeyEqual))
 	}
+	if KeyLeftBracket != 0x21 || KeyRightBracket != 0x1E {
+		t.Errorf("the bracket codes are %#x and %#x",
+			uint16(KeyLeftBracket), uint16(KeyRightBracket))
+	}
 
 	// Both directions, which is what the pair is for: a settings file writes
 	// what a log prints.
-	for _, k := range []Key{KeyMinus, KeyEqual} {
+	for _, k := range []Key{KeyMinus, KeyEqual, KeyLeftBracket, KeyRightBracket} {
 		c := Combo{Key: k, Mods: Command}
 		back, err := ParseCombo(c.String())
 		if err != nil {
@@ -223,7 +231,7 @@ func TestMinusAndEqual(t *testing.T) {
 
 	// And they are offered to a person who wrote something else, which is the
 	// only way anybody finds out they exist.
-	for _, want := range []string{"Minus", "Equal"} {
+	for _, want := range []string{"Minus", "Equal", "LeftBracket", "RightBracket"} {
 		if !strings.Contains(KeyNames(), want) {
 			t.Errorf("KeyNames() does not offer %q: %s", want, KeyNames())
 		}
