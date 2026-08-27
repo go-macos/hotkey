@@ -195,43 +195,50 @@ type Key uint16
 // The virtual key codes this package names. Any other code is usable; it
 // simply renders as "key 0x…" in a [Combo] string.
 const (
-	KeyA          Key = 0x00
-	KeyS          Key = 0x01
-	KeyD          Key = 0x02
-	KeyF          Key = 0x03
-	KeyH          Key = 0x04
-	KeyG          Key = 0x05
-	KeyZ          Key = 0x06
-	KeyX          Key = 0x07
-	KeyC          Key = 0x08
-	KeyV          Key = 0x09
-	KeyB          Key = 0x0B
-	KeyQ          Key = 0x0C
-	KeyW          Key = 0x0D
-	KeyE          Key = 0x0E
-	KeyR          Key = 0x0F
-	KeyY          Key = 0x10
-	KeyT          Key = 0x11
-	KeyO          Key = 0x1F
-	KeyU          Key = 0x20
-	KeyI          Key = 0x22
-	KeyP          Key = 0x23
-	KeyL          Key = 0x25
-	KeyJ          Key = 0x26
-	KeyK          Key = 0x28
-	KeyN          Key = 0x2D
-	KeyM          Key = 0x2E
-	KeyN1         Key = 0x12
-	KeyN2         Key = 0x13
-	KeyN3         Key = 0x14
-	KeyN4         Key = 0x15
-	KeyN5         Key = 0x17
-	KeyN6         Key = 0x16
-	KeyN7         Key = 0x1A
-	KeyN8         Key = 0x1C
-	KeyN9         Key = 0x19
-	KeyN0         Key = 0x1D
-	KeySlash      Key = 0x2C
+	KeyA     Key = 0x00
+	KeyS     Key = 0x01
+	KeyD     Key = 0x02
+	KeyF     Key = 0x03
+	KeyH     Key = 0x04
+	KeyG     Key = 0x05
+	KeyZ     Key = 0x06
+	KeyX     Key = 0x07
+	KeyC     Key = 0x08
+	KeyV     Key = 0x09
+	KeyB     Key = 0x0B
+	KeyQ     Key = 0x0C
+	KeyW     Key = 0x0D
+	KeyE     Key = 0x0E
+	KeyR     Key = 0x0F
+	KeyY     Key = 0x10
+	KeyT     Key = 0x11
+	KeyO     Key = 0x1F
+	KeyU     Key = 0x20
+	KeyI     Key = 0x22
+	KeyP     Key = 0x23
+	KeyL     Key = 0x25
+	KeyJ     Key = 0x26
+	KeyK     Key = 0x28
+	KeyN     Key = 0x2D
+	KeyM     Key = 0x2E
+	KeyN1    Key = 0x12
+	KeyN2    Key = 0x13
+	KeyN3    Key = 0x14
+	KeyN4    Key = 0x15
+	KeyN5    Key = 0x17
+	KeyN6    Key = 0x16
+	KeyN7    Key = 0x1A
+	KeyN8    Key = 0x1C
+	KeyN9    Key = 0x19
+	KeyN0    Key = 0x1D
+	KeySlash Key = 0x2C
+	// KeyMinus and KeyEqual are the two keys either side of the number row's
+	// end, which is where a keyboard puts "smaller" and "larger". The virtual
+	// codes are the US layout's, like every other key here: a hot key is
+	// registered by CODE and the code is a POSITION, so on a French keyboard
+	// these are the same two keys in the same place whatever is printed on them.
+	KeyMinus      Key = 0x1B
+	KeyEqual      Key = 0x18
 	KeyReturn     Key = 0x24
 	KeyTab        Key = 0x30
 	KeySpace      Key = 0x31
@@ -267,7 +274,14 @@ var keyNames = map[Key]string{
 	KeyN: "N", KeyM: "M",
 	KeyN1: "1", KeyN2: "2", KeyN3: "3", KeyN4: "4", KeyN5: "5",
 	KeyN6: "6", KeyN7: "7", KeyN8: "8", KeyN9: "9", KeyN0: "0",
-	KeySlash:  "/",
+	KeySlash: "/",
+	// SPELLED, not the characters on the keys.
+	//
+	// A combination is written with "-" between its parts, so a key whose name is
+	// "-" cannot be told from the join: "Control--" is unreadable in both
+	// directions, and the round trip through ParseCombo is what caught it. Equal
+	// is spelled with it for the pair to read alike.
+	KeyMinus: "Minus", KeyEqual: "Equal",
 	KeyReturn: "↩", KeyTab: "⇥", KeySpace: "Space",
 	KeyDelete: "⌫", KeyEscape: "⎋",
 	KeyF1: "F1", KeyF2: "F2", KeyF3: "F3", KeyF4: "F4", KeyF5: "F5",
@@ -320,6 +334,8 @@ var keySpelled = map[Key]string{
 	KeyDownArrow:  "Down",
 	KeyUpArrow:    "Up",
 	KeySlash:      "Slash",
+	KeyMinus:      "Minus",
+	KeyEqual:      "Equal",
 }
 
 // Combo is a key plus its modifiers — one keyboard shortcut.

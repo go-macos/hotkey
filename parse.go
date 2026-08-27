@@ -156,6 +156,13 @@ func parseKey(f string) (Key, bool) {
 		return KeyEscape, true
 	case "slash":
 		return KeySlash, true
+	case "minus", "hyphen":
+		return KeyMinus, true
+	// "plus" spells the same key: the plus is the shifted equals, and a person
+	// writing "plus" in a settings file means the key with a plus printed on it
+	// rather than a shortcut that also needs Shift.
+	case "equal", "equals", "plus":
+		return KeyEqual, true
 	case "left", "leftarrow":
 		return KeyLeftArrow, true
 	case "right", "rightarrow":
