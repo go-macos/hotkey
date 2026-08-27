@@ -165,3 +165,67 @@ func isWord(s string) bool {
 	}
 	return true
 }
+
+// TestMinusAndEqual: the two keys a person reaches for to make something
+// smaller or larger.
+//
+// They are the reason this pair exists, and the reason they are SPELLED rather
+// than printed as the characters on them: a combination is written with "-"
+// between its parts, so a key whose name is "-" cannot be told from the join.
+func TestMinusAndEqual(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want Key
+	}{
+		{"minus", KeyMinus}, {"Minus", KeyMinus}, {"hyphen", KeyMinus},
+		{"equal", KeyEqual}, {"Equal", KeyEqual}, {"equals", KeyEqual},
+		// "plus" is the same key: the plus is the shifted equals, and a person
+		// writing it in a settings file means the key with a plus printed on it
+		// rather than a shortcut that also needs Shift.
+		{"plus", KeyEqual},
+	} {
+		got, err := ParseCombo("Control-Option-Command-" + c.in)
+		if err != nil {
+			t.Errorf("ParseCombo(%q) = %v", c.in, err)
+			continue
+		}
+		if got.Key != c.want {
+			t.Errorf("%q gave key %v, want %v", c.in, got.Key, c.want)
+		}
+		if got.Mods != Control|Option|Command {
+			t.Errorf("%q gave mods %v", c.in, got.Mods)
+		}
+	}
+
+	// The codes are the US layout's positions, like every other key here, so
+	// they are the two keys at the end of the number row whatever is printed on
+	// them: 0x1B and 0x18 are what the window server matches.
+	if KeyMinus != 0x1B || KeyEqual != 0x18 {
+		t.Errorf("the codes are %#x and %#x", uint16(KeyMinus), uint16(KeyEqual))
+	}
+
+	// Both directions, which is what the pair is for: a settings file writes
+	// what a log prints.
+	for _, k := range []Key{KeyMinus, KeyEqual} {
+		c := Combo{Key: k, Mods: Command}
+		back, err := ParseCombo(c.String())
+		if err != nil {
+			t.Errorf("ParseCombo(%q) = %v", c.String(), err)
+			continue
+		}
+		if back != c {
+			t.Errorf("%q round-tripped to %v", c.String(), back)
+		}
+		if names := c.Names(); names == "" {
+			t.Errorf("%v has no spelled name", c)
+		}
+	}
+
+	// And they are offered to a person who wrote something else, which is the
+	// only way anybody finds out they exist.
+	for _, want := range []string{"Minus", "Equal"} {
+		if !strings.Contains(KeyNames(), want) {
+			t.Errorf("KeyNames() does not offer %q: %s", want, KeyNames())
+		}
+	}
+}
