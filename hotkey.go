@@ -445,7 +445,20 @@ type Reserver interface {
 // If every candidate is taken, Resolve returns [ErrNoCandidate] and nothing is
 // registered. It never silently returns an unusable claim.
 func Resolve(want Combo, ladder []Modifier, reg Registrar, reserved Reserver) (Combo, Claim, error) {
-	if !want.Valid() {
+	return resolve(want, ladder, reg, reserved, false)
+}
+
+// ResolveBare is [Resolve] for a combination with no modifier. See
+// [Options.BareKey] for when that is a reasonable thing to want, and for the
+// obligation that comes with it.
+func ResolveBare(want Combo, ladder []Modifier, reg Registrar, reserved Reserver) (Combo, Claim, error) {
+	return resolve(want, ladder, reg, reserved, true)
+}
+
+func resolve(want Combo, ladder []Modifier, reg Registrar, reserved Reserver, bare bool) (Combo, Claim, error) {
+	// No key check: Key(0) is the letter A on this platform (kVK_ANSI_A), so
+	// "no key" is not a thing a Combo can express.
+	if !bare && !want.Valid() {
 		return Combo{}, nil, fmt.Errorf("%w: %s", ErrNoModifier, want)
 	}
 	if reg == nil {
@@ -488,6 +501,26 @@ type Options struct {
 	// NoReserved{} to skip the check and let Carbon be the only authority,
 	// accepting that conflict kind 2 then goes undetected.
 	Reserved Reserver
+
+	// BareKey allows a combination with NO MODIFIER — a plain arrow, Return,
+	// Escape — which is otherwise refused with [ErrNoModifier].
+	//
+	// It is refused by default because a bare key claimed system-wide is taken
+	// from every application on the machine, and a caller who did that by
+	// accident would break typing everywhere. That reasoning holds for a claim
+	// that lasts as long as the program.
+	//
+	// It does not hold for a claim that lasts as long as a MODE. go-xrkit/desk
+	// puts a full-screen gallery on a pair of glasses and wants the arrows to
+	// move the selection in it — plain arrows, because a person looking at a
+	// grid should not have to hold three modifiers to walk it — and gives them
+	// back the moment the gallery closes. The person is not typing into
+	// anything while a gallery covers their view.
+	//
+	// So it is opt-in and named, and a caller who sets it is saying they know
+	// what they are taking. RELEASE IT: a bare key left claimed is a keyboard
+	// somebody else cannot use.
+	BareKey bool
 }
 
 // ladder returns the ladder to use, distinguishing "not set" (nil, use the
@@ -516,3 +549,7 @@ func sortedReasons(m map[string]bool) []string {
 	sort.Strings(out)
 	return out
 }
+
+// bareKey reports whether a modifier-less combination is allowed, tolerating a
+// nil Options.
+func (o *Options) bareKey() bool { return o != nil && o.BareKey }

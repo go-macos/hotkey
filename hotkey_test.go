@@ -786,3 +786,44 @@ func TestTheConsumersThreeShortcuts(t *testing.T) {
 		t.Logf("asked %-9s → got %-12s (substituted: %v)", tc.want, got, got != tc.want)
 	}
 }
+
+// TestABareKeyIsRefusedUnlessItIsAskedFor, because a bare key claimed
+// system-wide is taken from every application on the machine — and is exactly
+// what a modal gallery wants for as long as it is up.
+func TestABareKeyIsRefusedUnlessItIsAskedFor(t *testing.T) {
+	bare := Combo{Key: KeyLeftArrow}
+
+	if _, _, err := Resolve(bare, nil, &fakeRegistrar{}, NoReserved{}); !errors.Is(err, ErrNoModifier) {
+		t.Errorf("Resolve of a bare key = %v, want ErrNoModifier", err)
+	}
+	got, claim, err := ResolveBare(bare, nil, &fakeRegistrar{}, NoReserved{})
+	if err != nil {
+		t.Fatalf("ResolveBare: %v", err)
+	}
+	if got != bare {
+		t.Errorf("claimed %v, want %v", got, bare)
+	}
+	if claim == nil {
+		t.Error("no claim came back")
+	}
+	// And Key(0) is not "no key": it is the letter A on this platform, so a
+	// bare A is a claim like any other rather than a malformed combination.
+	if _, _, err := ResolveBare(Combo{Key: KeyA}, nil, &fakeRegistrar{}, NoReserved{}); err != nil {
+		t.Errorf("ResolveBare of a bare A = %v, want it claimed", err)
+	}
+}
+
+// TestBareKeyIsOffByDefaultInOptions: nil Options, and an Options that does not
+// mention it, both mean no.
+func TestBareKeyIsOffByDefaultInOptions(t *testing.T) {
+	var nilOpts *Options
+	if nilOpts.bareKey() {
+		t.Error("a nil Options allows a bare key")
+	}
+	if (&Options{}).bareKey() {
+		t.Error("an empty Options allows a bare key")
+	}
+	if !(&Options{BareKey: true}).bareKey() {
+		t.Error("BareKey: true was not honoured")
+	}
+}

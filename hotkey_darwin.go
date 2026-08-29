@@ -230,7 +230,11 @@ func Register(want Combo, opts *Options) (*Hotkey, error) {
 		return nil, err
 	}
 	reserved := opts.reserved()
-	got, claim, err := Resolve(want, opts.ladder(), carbonRegistrar{}, reserved)
+	resolve := Resolve
+	if opts.bareKey() {
+		resolve = ResolveBare
+	}
+	got, claim, err := resolve(want, opts.ladder(), carbonRegistrar{}, reserved)
 	if err != nil {
 		return nil, err
 	}
