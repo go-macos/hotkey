@@ -314,6 +314,33 @@ func (k Key) String() string {
 	return fmt.Sprintf("key 0x%02X", uint16(k))
 }
 
+// keyGlyphs are the keys macOS PRINTS as a character on a menu where
+// [Key.String] spells them out.
+//
+// The two differ on purpose. String is what a settings file round-trips
+// through [ParseCombo], and a combination is written with "-" between its
+// parts -- so a key whose name is "-" cannot be told from the join, and
+// "Control--" is unreadable in both directions. A menu has no such problem: it
+// draws the combination as one run of glyphs with nothing between them, which
+// is where "⌃⌥⌘Equal" reads as a mistake and "⌃⌥⌘=" reads as the key.
+var keyGlyphs = map[Key]string{
+	KeyMinus: "-", KeyEqual: "=",
+	KeyLeftBracket: "[", KeyRightBracket: "]",
+}
+
+// Glyph is the key as macOS prints it on a menu: "=" rather than "Equal".
+//
+// It is [Key.String] for every key but the four whose printed character is one
+// a written combination uses for something else. Use it for a MENU and for
+// anything else drawn rather than parsed; use String where the result may be
+// read back.
+func (k Key) Glyph() string {
+	if g, ok := keyGlyphs[k]; ok {
+		return g
+	}
+	return k.String()
+}
+
 // Name spells the key out, where [Key.String] would print the glyph macOS puts
 // on a menu: "Left" rather than "←", "Return" rather than "↩".
 //
@@ -368,6 +395,15 @@ func (c Combo) String() string { return c.Mods.String() + c.Key.String() }
 func (c Combo) Names() string {
 	return strings.Join(append(c.Mods.Names(), c.Key.Name()), "-")
 }
+
+// Glyphs renders the combination as macOS prints it on a menu -- "⌃⌥⌘=" where
+// [Combo.String] gives "⌃⌥⌘Equal".
+//
+// Three renderings rather than two, because they answer three questions. String
+// is what a settings file round-trips. Names is what a font that has no ⌘ can
+// still show. This is what goes on a menu row beside the thing it does, and
+// there a key that says "Equal" is a key somebody looks for and does not find.
+func (c Combo) Glyphs() string { return c.Mods.String() + c.Key.Glyph() }
 
 // Valid reports whether the combination can be claimed system-wide. It requires
 // at least one modifier; see [ErrNoModifier].
