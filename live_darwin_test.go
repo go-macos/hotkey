@@ -241,7 +241,6 @@ var (
 	cgEventCreateKeyboardEvent func(source uintptr, keycode uint16, keyDown bool) uintptr
 	cgEventSetFlags            func(event uintptr, flags uint64)
 	cgEventPost                func(tap uint32, event uintptr)
-	cfRelease                  func(ref uintptr)
 	axIsProcessTrusted         func() bool
 	cgEventSourceCounter       func(sourceState, eventType uint32) uint32
 )
@@ -258,7 +257,6 @@ const (
 const (
 	coreGraphicsPath       = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
 	applicationServices    = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
-	coreFoundationPath     = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
 	kCGHIDEventTap         = uint32(0)
 	kCGSessionEventTap     = uint32(1)
 	kCGAnnotatedSessionTap = uint32(2)

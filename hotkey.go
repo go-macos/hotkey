@@ -403,7 +403,19 @@ func (c Combo) Names() string {
 // is what a settings file round-trips. Names is what a font that has no ⌘ can
 // still show. This is what goes on a menu row beside the thing it does, and
 // there a key that says "Equal" is a key somebody looks for and does not find.
-func (c Combo) Glyphs() string { return c.Mods.String() + c.Key.Glyph() }
+//
+// ⛔ IT ASKS THE KEYBOARD FIRST. A [Key] is a POSITION, and this package's
+// names are the ANSI legends for those positions -- so on a French layout the
+// key this package calls Equal is printed "-", and a menu row saying "⌃⌥⌘="
+// would be sending a person to a key that does nothing. [Key.Char] is what the
+// system says is printed there; the ANSI name is the fallback for a key that
+// prints nothing and for a platform with no layout to ask.
+func (c Combo) Glyphs() string {
+	if ch := c.Key.Char(); ch != "" {
+		return c.Mods.String() + ch
+	}
+	return c.Mods.String() + c.Key.Glyph()
+}
 
 // Valid reports whether the combination can be claimed system-wide. It requires
 // at least one modifier; see [ErrNoModifier].
@@ -557,6 +569,41 @@ type Options struct {
 	// what they are taking. RELEASE IT: a bare key left claimed is a keyboard
 	// somebody else cannot use.
 	BareKey bool
+
+	// OnThisKeyboard reads each key's name as the LEGEND PRINTED ON THE KEY, and
+	// claims whichever position prints it here.
+	//
+	// ⛔ WITHOUT IT A SETTINGS FILE MEANS SOMETHING DIFFERENT ON EVERY LAYOUT AND
+	// SAYS NOTHING ABOUT IT. A [Key] is a virtual key code, which is a POSITION,
+	// and this package's names are the ANSI legends for those positions. On a
+	// French Mac the position called Equal prints "-", and "=" is over on the
+	// position called Slash -- so "ctrl+alt+cmd+Equal" claimed the key printed
+	// "-", the shortcut was granted, it fired, and the person pressing the key
+	// printed "=" reached nothing at all. Every check reported it as granted,
+	// because it was.
+	//
+	// It is an OPTION and not the default because the two readings are both
+	// legitimate: a game wants the position (WASD is a shape under the hand,
+	// whatever is printed there) and a shortcut wants the legend (a person
+	// presses what the menu says). This package cannot tell which a caller means.
+	//
+	// It applies to [Register] alone, and once -- which is the point of it being
+	// here rather than a method on a combination. Reading a key's ANSI name and
+	// moving to the local key that prints it is a ONE-WAY interpretation: the
+	// result is a position whose own ANSI name says something else, so a
+	// transform a caller could apply twice would walk. Doing it at the moment a
+	// combination becomes a claim is the one place it cannot happen twice.
+	//
+	// Keys with no printed character of their own -- the arrows, Return, Escape,
+	// the function keys -- are never moved: no layout moves them, and there is
+	// nothing to match on. Neither is a key whose legend this keyboard does not
+	// print anywhere, which is what "[" is on French: nothing is silently
+	// swapped, the claim stays where it was, and [Combo.Glyphs] then reports what
+	// that key actually prints.
+	//
+	// [Hotkey.Wanted] is the combination as WRITTEN, so a caller can still say
+	// what was asked for.
+	OnThisKeyboard bool
 }
 
 // ladder returns the ladder to use, distinguishing "not set" (nil, use the
