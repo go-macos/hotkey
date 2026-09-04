@@ -20,6 +20,16 @@ import "sync"
 // least a name a person can look up.
 func (k Key) Char() string { return charFor(k) }
 
+// charFor is the platform call, replaced in tests.
+//
+// A seam, for the reason `register` is one: what a key prints is the system's
+// answer and only macOS has a system to ask, so without this the branches that
+// matter -- a key that HAS a character, a lookup that FINDS one, a combination
+// that MOVES -- could only ever be taken on a Mac, and only on whatever layout
+// that Mac happened to be set to. With it, a French keyboard is a table, and a
+// Linux runner walks every one of those branches.
+var charFor = platformChar
+
 // KeyForChar is the key that PRINTS this character on the current keyboard.
 //
 // The inverse of [Key.Char], and the one a settings file needs: somebody

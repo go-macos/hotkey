@@ -106,7 +106,7 @@ func initLayout() error {
 // Read every time rather than remembered: a person switches layout while a
 // program is running -- that is what the input menu is for -- and a table built
 // at start-up would then name keys that have moved.
-func charFor(k Key) string {
+func platformChar(k Key) string {
 	if err := initLayout(); err != nil {
 		return ""
 	}
