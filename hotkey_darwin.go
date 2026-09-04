@@ -229,12 +229,18 @@ func Register(want Combo, opts *Options) (*Hotkey, error) {
 	if err := initCarbon(); err != nil {
 		return nil, err
 	}
+	// The LEGEND, before anything is claimed and exactly once. See
+	// Options.OnThisKeyboard for why it is here rather than a method.
+	sought := want
+	if opts != nil && opts.OnThisKeyboard {
+		sought = onThisKeyboard(want)
+	}
 	reserved := opts.reserved()
 	resolve := Resolve
 	if opts.bareKey() {
 		resolve = ResolveBare
 	}
-	got, claim, err := resolve(want, opts.ladder(), carbonRegistrar{}, reserved)
+	got, claim, err := resolve(sought, opts.ladder(), carbonRegistrar{}, reserved)
 	if err != nil {
 		return nil, err
 	}

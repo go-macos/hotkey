@@ -46,19 +46,31 @@ func TestEveryOtherKeyPrintsAsItIsWritten(t *testing.T) {
 }
 
 // TestTheWholeCombinationOnAMenu.
+//
+// ⛔ Against the KEYBOARD and not against a table. Glyphs asks what the key
+// prints here, so on an ANSI layout Equal is "=" and on a French one it is "-"
+// -- and a test asserting either literal would be wrong on half the machines
+// that run it. What is always true is the relationship: the modifiers, then
+// what the key prints, and the ANSI name only where it prints nothing.
 func TestTheWholeCombinationOnAMenu(t *testing.T) {
 	const mods = Control | Option | Command
-	for _, c := range []struct {
-		combo Combo
-		menu  string
-	}{
-		{Combo{Key: KeyEqual, Mods: mods}, "⌃⌥⌘="},
-		{Combo{Key: KeyLeftBracket, Mods: mods}, "⌃⌥⌘["},
-		{Combo{Key: KeyLeftArrow, Mods: mods}, "⌃⌥⌘←"},
-		{Combo{Key: KeyG, Mods: mods}, "⌃⌥⌘G"},
-	} {
-		if got := c.combo.Glyphs(); got != c.menu {
-			t.Errorf("Glyphs() = %q, want %q", got, c.menu)
+	for _, k := range []Key{KeyEqual, KeyLeftBracket, KeyLeftArrow, KeyG, KeySpace} {
+		c := Combo{Key: k, Mods: mods}
+		want := "⌃⌥⌘"
+		if ch := k.Char(); ch != "" {
+			want += ch
+		} else {
+			want += k.Glyph()
+		}
+		if got := c.Glyphs(); got != want {
+			t.Errorf("Glyphs() = %q, want %q", got, want)
+		}
+		// And never a control character, whatever the layout says: a left arrow
+		// rendered as "\x1c" is what taking UCKeyTranslate at face value gives.
+		for _, r := range c.Glyphs() {
+			if r < 0x20 || r == 0x7F {
+				t.Errorf("%v renders with the control character %#U", k, r)
+			}
 		}
 	}
 }
