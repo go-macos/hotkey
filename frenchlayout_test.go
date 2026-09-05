@@ -26,6 +26,10 @@ import "testing"
 var french = map[Key]string{
 	KeyEqual: "-", KeyMinus: ")", KeyLeftBracket: "^", KeyRightBracket: "$",
 	KeySlash: "=",
+	// ⭐ THE ISO KEY, and the only place a French Mac prints "@": measured on
+	// this machine, position 0x0A answers "@" unshifted. No ANSI position on
+	// this layout prints one at all.
+	KeyISOSection: "@",
 	// AZERTY: A and Q change places, so do W and Z. M moves to where ANSI keeps
 	// the semicolon -- a position this package does not NAME, which is why "M"
 	// is absent from the values here and the claim cannot follow it.
@@ -140,5 +144,44 @@ func TestLookingUpACharacterThisKeyboardDoesNotPrint(t *testing.T) {
 		if _, ok := KeyForChar(ch); !ok {
 			t.Errorf("%q was not found", ch)
 		}
+	}
+}
+
+// TestTheISOKeyIsFoundByWhatItPrints.
+//
+// ⭐ "@" HAS NOWHERE ELSE TO BE. It is the one character a French Mac prints
+// only on the extra key an ISO keyboard has and an ANSI one does not -- so
+// before that key had a name here, KeyForChar("@") answered "no such key" and
+// a shortcut on "@" could not be expressed at all.
+func TestTheISOKeyIsFoundByWhatItPrints(t *testing.T) {
+	onFrench(t)
+
+	k, ok := KeyForChar("@")
+	if !ok {
+		t.Fatal(`no key prints "@", so a shortcut on it cannot be named`)
+	}
+	if k != KeyISOSection {
+		t.Errorf(`"@" is on key %#02x, want the ISO key %#02x`, int(k), int(KeyISOSection))
+	}
+}
+
+// TestTheISOKeyIsNotMovedAgain: it is named as a POSITION, and that is what
+// keeps it still.
+//
+// ⛔ THE WALK IS THE HAZARD. onThisKeyboard moves a shortcut to the key
+// PRINTING what its ANSI name says, so a key named for its own character would
+// be looked up by that character and moved -- and the answer would be this key
+// again only by luck. Minus and the brackets are spelled as words for the same
+// reason; this one joins them.
+func TestTheISOKeyIsNotMovedAgain(t *testing.T) {
+	onFrench(t)
+
+	want := Combo{Key: KeyISOSection, Mods: Control | Option | Command}
+	if got := onThisKeyboard(want); got != want {
+		t.Errorf("the ISO key moved to %#02x", int(got.Key))
+	}
+	// And it still draws as the character somebody is looking at.
+	if ch := KeyISOSection.Char(); ch != "@" {
+		t.Errorf("the menu would draw %q rather than the legend on the key", ch)
 	}
 }
