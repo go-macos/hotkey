@@ -246,30 +246,46 @@ const (
 	// keys in that place whatever is printed on them.
 	KeyLeftBracket  Key = 0x21
 	KeyRightBracket Key = 0x1E
-	KeyReturn       Key = 0x24
-	KeyTab          Key = 0x30
-	KeySpace        Key = 0x31
-	KeyDelete       Key = 0x33
-	KeyEscape       Key = 0x35
-	KeyF1           Key = 0x7A
-	KeyF2           Key = 0x78
-	KeyF3           Key = 0x63
-	KeyF4           Key = 0x76
-	KeyF5           Key = 0x60
-	KeyF6           Key = 0x61
-	KeyF7           Key = 0x62
-	KeyF8           Key = 0x64
-	KeyF9           Key = 0x65
-	KeyF10          Key = 0x6D
-	KeyF11          Key = 0x67
-	KeyF12          Key = 0x6F
-	KeyF13          Key = 0x69
-	KeyF14          Key = 0x6B
-	KeyF15          Key = 0x71
-	KeyLeftArrow    Key = 0x7B
-	KeyRightArrow   Key = 0x7C
-	KeyDownArrow    Key = 0x7D
-	KeyUpArrow      Key = 0x7E
+	// KeyISOSection is the EXTRA key an ISO keyboard has and an ANSI one does
+	// not: the short one between the left Shift and the Z position, which Apple
+	// calls kVK_ISO_Section.
+	//
+	// ⭐ IT IS WHERE A FRENCH MAC PRINTS "@". Measured on this machine:
+	// position 0x0A prints "@" unshifted. There is nowhere else to look for it
+	// -- no ANSI position on a French layout prints one -- so a shortcut on "@"
+	// is this key or it is nothing.
+	//
+	// ⛔ NAMED AS A POSITION, deliberately, like Minus and the brackets. The
+	// name is a WORD, so [onThisKeyboard] leaves it alone: a key named for what
+	// it prints would be moved to the local key printing that legend, and this
+	// key IS the local one. A layout that prints something else here -- "§" on
+	// a Swiss keyboard, "`" on a British one -- gets the same physical key,
+	// which is what a person pointing at their keyboard means.
+	KeyISOSection Key = 0x0A
+	KeyReturn     Key = 0x24
+	KeyTab        Key = 0x30
+	KeySpace      Key = 0x31
+	KeyDelete     Key = 0x33
+	KeyEscape     Key = 0x35
+	KeyF1         Key = 0x7A
+	KeyF2         Key = 0x78
+	KeyF3         Key = 0x63
+	KeyF4         Key = 0x76
+	KeyF5         Key = 0x60
+	KeyF6         Key = 0x61
+	KeyF7         Key = 0x62
+	KeyF8         Key = 0x64
+	KeyF9         Key = 0x65
+	KeyF10        Key = 0x6D
+	KeyF11        Key = 0x67
+	KeyF12        Key = 0x6F
+	KeyF13        Key = 0x69
+	KeyF14        Key = 0x6B
+	KeyF15        Key = 0x71
+	KeyLeftArrow  Key = 0x7B
+	KeyRightArrow Key = 0x7C
+	KeyDownArrow  Key = 0x7D
+	KeyUpArrow    Key = 0x7E
 )
 
 // keyNames maps the named key codes to what macOS prints on a menu.
@@ -293,7 +309,9 @@ var keyNames = map[Key]string{
 	// between its parts is readable, but the pair reads better as words and the
 	// glyphs are two of the characters a settings file quotes with.
 	KeyLeftBracket: "LeftBracket", KeyRightBracket: "RightBracket",
-	KeyReturn: "↩", KeyTab: "⇥", KeySpace: "Space",
+	// A word, so onThisKeyboard leaves it where it is: see [KeyISOSection].
+	KeyISOSection: "ISOSection",
+	KeyReturn:     "↩", KeyTab: "⇥", KeySpace: "Space",
 	KeyDelete: "⌫", KeyEscape: "⎋",
 	KeyF1: "F1", KeyF2: "F2", KeyF3: "F3", KeyF4: "F4", KeyF5: "F5",
 	KeyF6: "F6", KeyF7: "F7", KeyF8: "F8", KeyF9: "F9", KeyF10: "F10",
@@ -376,6 +394,7 @@ var keySpelled = map[Key]string{
 	KeyEqual:        "Equal",
 	KeyLeftBracket:  "LeftBracket",
 	KeyRightBracket: "RightBracket",
+	KeyISOSection:   "ISOSection",
 }
 
 // Combo is a key plus its modifiers — one keyboard shortcut.
