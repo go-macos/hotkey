@@ -42,6 +42,23 @@ var (
 	layoutOnce sync.Once
 	layoutErr  error
 
+	// ⛔ THE TEXT INPUT SOURCES API IS NOT SAFE TO CALL FROM TWO PLACES AT ONCE,
+	// AND IT DOES NOT RETURN AN ERROR SAYING SO: IT ABORTS THE PROCESS.
+	//
+	// Measured. Eight goroutines asking for the same key's character, two
+	// hundred times each: SIGABRT inside TISGetInputSourceProperty, "signal
+	// arrived during cgo execution", no Go panic and nothing recover can catch.
+	// One goroutine passes. Eight goroutines through this mutex pass. Eight
+	// goroutines calling a DIFFERENT purego function pass, so it is this API and
+	// not the calling machinery.
+	//
+	// It cost go-xrkit/desk its process: a menu asking what its rows print, on
+	// the main thread, while the desk described its shortcuts on another. Two
+	// callers is all it takes, and neither of them was doing anything unusual --
+	// which is why the lock belongs HERE, and not in a note telling every caller
+	// to hold one.
+	layoutMu sync.Mutex
+
 	tisCopyCurrentKeyboardLayoutInputSource func() uintptr
 	tisGetInputSourceProperty               func(uintptr, uintptr) uintptr
 	cfDataGetBytePtr                        func(uintptr) uintptr
@@ -110,6 +127,12 @@ func platformChar(k Key) string {
 	if err := initLayout(); err != nil {
 		return ""
 	}
+	// One at a time, for the whole exchange rather than per call: the source is
+	// copied, asked about and released, and it is the sequence that has to be
+	// alone, not any one step of it.
+	layoutMu.Lock()
+	defer layoutMu.Unlock()
+
 	src := tisCopyCurrentKeyboardLayoutInputSource()
 	if src == 0 {
 		return ""
