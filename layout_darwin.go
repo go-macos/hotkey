@@ -59,6 +59,19 @@ var (
 	// to hold one.
 	layoutMu sync.Mutex
 
+	// charCache is what each key printed, last time the main thread looked.
+	//
+	// It is the whole answer for a caller that is not on the main thread, and
+	// there is no other answer available to one: see [platformChar].
+	charCache = map[Key]string{}
+
+	// pthreadMainNp is how a goroutine finds out which thread it is on.
+	//
+	// Go moves goroutines between threads, so "am I the main thread" is a
+	// question about NOW and cannot be remembered. libSystem answers it in a
+	// few instructions.
+	pthreadMainNp func() int32
+
 	tisCopyCurrentKeyboardLayoutInputSource func() uintptr
 	tisGetInputSourceProperty               func(uintptr, uintptr) uintptr
 	cfDataGetBytePtr                        func(uintptr) uintptr
@@ -113,29 +126,97 @@ func initLayout() error {
 		// dereferencing a uintptr is the conversion go vet's unsafeptr check
 		// rightly flags -- the same trade go-macos/avfoundation makes for
 		// AVMediaTypeVideo, and for the same reason.
-		unicodeKeyLayoutDataKey = uintptr(objc.NSString("TISPropertyUnicodeKeyLayoutData"))
+		//
+		// ⛔ AND IT IS RETAINED, BECAUSE +[NSString stringWithUTF8String:] HANDS
+		// BACK AN AUTORELEASED OBJECT AND THIS KEEPS IT FOREVER. Whatever pool
+		// happened to be in place the first time a key was asked about owns it,
+		// and when that pool drains the object is freed while this still points
+		// at it. Nothing goes wrong until the memory is REUSED -- so it works,
+		// and works, and then kills the process from a line that has not changed.
+		//
+		// Measured: keep the pointer, drain the pool, allocate 50000 strings,
+		// send it -length -> SIGSEGV. That is exactly what killed go-xrkit/desk,
+		// deterministically under AppKit (whose pool drains every pass of the
+		// event loop) and only sometimes in a program that allocates less.
+		key := objc.NSString("TISPropertyUnicodeKeyLayoutData")
+		key.Send(objc.Sel("retain")) // for the life of the process: a key is a constant
+		unicodeKeyLayoutDataKey = uintptr(key)
+
+		// pthread_main_np is in libSystem, which is already open in every
+		// process; CoreFoundation's handle re-exports it.
+		purego.RegisterLibFunc(&pthreadMainNp, cf, "pthread_main_np")
 	})
 	return layoutErr
 }
 
-// charFor is what this virtual key code prints on the layout in use now.
+// platformChar is what this virtual key code prints on the layout in use now.
 //
-// Read every time rather than remembered: a person switches layout while a
-// program is running -- that is what the input menu is for -- and a table built
-// at start-up would then name keys that have moved.
+// ⛔ HITOOLBOX IS ASKED ONLY ON THE MAIN THREAD. TISGetInputSourceProperty
+// asserts a dispatch queue, and an assertion that fails does not return an
+// error: it traps, and the process is gone.
+//
+//	SIGTRAP: trace trap
+//	signal arrived during cgo execution
+//	hotkey.platformChar(0x7b)
+//
+// Symbolised, the faulting address is _dispatch_assert_queue_fail in
+// libdispatch and the function being called is TISGetInputSourceProperty in
+// HIToolbox. It cost go-xrkit/desk its process every time the gallery was
+// opened, because that path claims its shortcuts and describes them from a
+// goroutine.
+//
+// ⚠ AND IT DOES NOT REPRODUCE OUTSIDE AN APPLICATION. Asked from a background
+// goroutine in a plain program -- with a run loop turning, with hot keys
+// registered first, with eight callers at once -- it answers normally. The
+// assertion is armed by whatever HIToolbox sets up for a real application, and
+// a test that does not have one will pass whatever this does.
+//
+// So the table is read on the main thread and remembered. Every key at once,
+// off one input source, because the expensive part is the round trip and
+// because a table read in pieces is a table half of which is from before the
+// person changed layout. A main-thread call always re-reads: switching layout
+// while a program runs is what the input menu is for.
 func platformChar(k Key) string {
 	if err := initLayout(); err != nil {
 		return ""
 	}
-	// One at a time, for the whole exchange rather than per call: the source is
-	// copied, asked about and released, and it is the sequence that has to be
-	// alone, not any one step of it.
+	if !onMainThread() {
+		layoutMu.Lock()
+		s, ok := charCache[k]
+		layoutMu.Unlock()
+		if ok {
+			return s
+		}
+		// Nothing remembered yet. Ask the main thread to fill the table so the
+		// next caller is right, and answer with the ANSI name this time --
+		// which is what an unprintable key falls back to anyway.
+		objc.DispatchMain(func() { _ = platformChar(k) })
+		return ""
+	}
+
 	layoutMu.Lock()
 	defer layoutMu.Unlock()
+	readTheWholeTable()
+	return charCache[k]
+}
 
+// readTheWholeTable asks HIToolbox what every key prints and remembers it.
+//
+// ⛔ THE CALLER HOLDS layoutMu AND IS ON THE MAIN THREAD. Both matter: the
+// second because a failed queue assertion inside TISGetInputSourceProperty
+// traps rather than returning, and the first because the input source is
+// copied, asked about and released, and it is the SEQUENCE that has to be alone
+// -- eight callers through it at once abort the process even on the main
+// thread, measured.
+//
+// Every key at once rather than the one asked for, because the expensive part
+// is the round trip, because the caller after this one is as likely to be on a
+// goroutine and can only have what is already here, and because a table read in
+// pieces is a table half of which is from before the person switched layout.
+func readTheWholeTable() {
 	src := tisCopyCurrentKeyboardLayoutInputSource()
 	if src == 0 {
-		return ""
+		return
 	}
 	defer cfRelease(src)
 	data := tisGetInputSourceProperty(src, unicodeKeyLayoutDataKey)
@@ -143,12 +224,23 @@ func platformChar(k Key) string {
 		// An input source with no Unicode layout -- an input METHOD rather than
 		// a layout, which is what a Chinese or Japanese source is. There is
 		// nothing to ask, and the ANSI name is the best answer left.
-		return ""
+		return
 	}
 	layout := cfDataGetBytePtr(data)
 	if layout == 0 {
-		return ""
+		return
 	}
+	for c := range Key(keyCodes) {
+		charCache[c] = charOnLayout(layout, c)
+	}
+}
+
+// keyCodes is how many virtual key codes there are. A code is a byte and the
+// top bit is not used, so 0x00..0x7F is all of them.
+const keyCodes = 0x80
+
+// charOnLayout is one key's legend, off a layout already in hand.
+func charOnLayout(layout uintptr, k Key) string {
 	plain := translate(layout, k, 0)
 	// ⛔ THE ALPHANUMERIC LEGEND WINS, because that is what a person calls the
 	// key by. On French the number row prints "&" unshifted and "1" over it, and
@@ -225,4 +317,23 @@ func utf16Runes(u []uint16) []rune {
 		out = append(out, rune(c))
 	}
 	return out
+}
+
+// onMainThread reports whether the goroutine is running on the process's main
+// thread right now.
+//
+// ⚠ "RIGHT NOW" IS THE WHOLE POINT. Go schedules a goroutine onto whatever
+// thread is free, so this is not a property of the goroutine and cannot be
+// remembered -- a goroutine that was on the main thread a moment ago may not be
+// on the next line. Only a goroutine that has called runtime.LockOSThread on
+// the main thread stays there, and that is exactly the arrangement a program
+// with an AppKit event loop has.
+func onMainThread() bool {
+	if pthreadMainNp == nil {
+		// Nothing was bound, so nothing can be asked. Reporting "not the main
+		// thread" keeps this off HIToolbox, which is the safe answer: the cost
+		// is a key named by its ANSI legend, and the alternative is a trap.
+		return false
+	}
+	return pthreadMainNp() != 0
 }
