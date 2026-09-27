@@ -76,8 +76,30 @@ var (
 	tisGetInputSourceProperty               func(uintptr, uintptr) uintptr
 	cfDataGetBytePtr                        func(uintptr) uintptr
 	cfRelease                               func(uintptr)
-	ucKeyTranslate                          func(uintptr, uint16, uint16, uint32, uint32, uint32, *uint32, uint32, *uint32, *uint16) int32
-	lmGetKbdType                            func() uint32
+	// ⛔⛔⛔ UniCharCount IS unsigned long -- EIGHT BYTES, not four. Both counts
+	// here are UniCharCount, and declaring actualStringLength as *uint32 made
+	// UCKeyTranslate write eight bytes into a four-byte Go variable: four bytes
+	// of the caller's heap, past the end of an object Go believes it owns.
+	//
+	// The four bytes written are the high half of a count of one or two, so
+	// they are ZEROS -- and when the variable sits at the end of a heap block,
+	// they land on the first four bytes of whatever Go put next. That is the
+	// fault that ate three weeks:
+	//
+	//	"VITURE Beast"     -> "\x00\x00\x00\x00RE Beast"
+	//	"ctrl+alt+cmd+Up"  -> "\x00\x00\x00\x00+alt+cmd+Up"
+	//
+	// ⭐ A Go out-of-bounds write PANICS, which is why nine occurrences never
+	// named a writer: only C can do this, and only through a signature that
+	// disagrees with the header. Measured after the fix with a bench that
+	// claims the shortcuts three hundred times: 9 of 300 before, 0 of 300 after.
+	//
+	// ⚠ maxStringLength was wrong too and got away with it: purego
+	// zero-extends a uint32 argument into a 64-bit register, so the C side read
+	// the right number. It is spelled correctly here anyway -- a parameter that
+	// happens to survive its own misdeclaration is a trap for the next reader.
+	ucKeyTranslate func(uintptr, uint16, uint16, uint32, uint32, uint32, *uint32, uint64, *uint64, *uint16) int32
+	lmGetKbdType   func() uint32
 
 	unicodeKeyLayoutDataKey uintptr
 )
@@ -262,10 +284,13 @@ const shiftKeyState = 0x02
 
 // translate asks the layout one question.
 func translate(layout uintptr, k Key, modifierKeyState uint32) string {
-	var dead, n uint32
+	// dead is a UInt32 and stays one; the two counts are UniCharCount, which is
+	// eight bytes. See the signature above for what the four-byte spelling did.
+	var dead uint32
+	var n uint64
 	buf := make([]uint16, 8)
 	if st := ucKeyTranslate(layout, uint16(k), kUCKeyActionDisplay, modifierKeyState,
-		lmGetKbdType(), kUCKeyTranslateNoDeadKeysMask, &dead, uint32(len(buf)), &n, &buf[0]); st != 0 || n == 0 {
+		lmGetKbdType(), kUCKeyTranslateNoDeadKeysMask, &dead, uint64(len(buf)), &n, &buf[0]); st != 0 || n == 0 {
 		return ""
 	}
 	return printable(utf16Runes(buf[:n]))
